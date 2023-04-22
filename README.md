@@ -1,6 +1,6 @@
-### Curious Researcher
+### Curious-GPT
 
-This is a small project of mine that uses ChatGPT to help research topics. It basically works as follows:
+This is a small project of mine that uses ChatGPT to satisfy curious minds. It basically works as follows:
 
 1. Ask any question.
 2. Get a response together with 5 generated follow-up questions.
