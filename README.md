@@ -11,3 +11,6 @@ Instructions:
 - Rename `.env.example` to `.env` and enter your OpenAI API key. 
 - `pip install -r requirements.txt`
 - `python ./main.py`
+
+Demonstration:
+https://user-images.githubusercontent.com/19852554/233801620-b1d654a8-abaa-445d-812d-b3ef70df571a.mp4
