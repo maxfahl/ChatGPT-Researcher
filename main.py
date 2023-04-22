@@ -38,7 +38,7 @@ if not OPENAI_API_KEY:
     print('OpenAI API key not defined in .env.')
     quit()
 
-openai.api_key = ""
+openai.api_key = OPENAI_API_KEY
 max_request_tokens = 1000
 
 answer_template = """<The answer>
