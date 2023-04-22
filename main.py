@@ -100,8 +100,8 @@ def ask(question, original_question=None):
     except json.JSONDecodeError as e:
         pass
 
-    answer = data["answer"].strip() if data["answer"] else None
-    options = data["follow_up_questions"] if data["follow_up_questions"] else None
+    answer = data["answer"].strip() if data and data["answer"] else None
+    options = data["follow_up_questions"] if data and data["follow_up_questions"] else None
 
     if answer:
         print_green(f"\n{answer}")
