@@ -1,4 +1,4 @@
-### Curious-GPT
+### Curiousity-GPT
 
 This is a small project of mine that uses ChatGPT to satisfy curious minds. It basically works as follows:
 
