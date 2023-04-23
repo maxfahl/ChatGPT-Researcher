@@ -18,15 +18,7 @@ if not OPENAI_API_KEY:
 openai.api_key = OPENAI_API_KEY
 max_request_tokens = 2000
 
-# answer_template = """<The answer>
-# ++DO NOT REMOVE++
-# 1. Follow up question 1
-# 2. Follow up question 2
-# 3. Follow up question 3
-# 4. Follow up question 4
-# 5. Follow up question 5"""
-
-answer_template = '{"answer": "<YOUR_ANSWER>", "follow_up_questions": ["<follow_up_question_1>", "<follow_up_question_2>", "<follow_up_question_3>", "<follow_up_question_4>", "<follow_up_question_5>"]}'
+answer_template = '{"topic": "<TOPIC>", "answer": "<YOUR_ANSWER>", "follow_up_questions": ["<follow_up_question_1>", "<follow_up_question_2>", "<follow_up_question_3>", "<follow_up_question_4>", "<follow_up_question_5>"]}'
 
 print_green = lambda text: cprint(text, "green")
 print_blue = lambda text: cprint(text, "blue")
@@ -53,8 +45,12 @@ def do_request(prompt):
     return response.choices[0].message.content.strip()
 
 
+def get_num_tokens(text):
+    return len(encoder.encode(text))
+
+
 def accept_token_length(text):
-    num_tokens = len(encoder.encode(text))
+    num_tokens = get_num_tokens(text)
     return num_tokens <= max_request_tokens
 
 
@@ -65,57 +61,74 @@ def trim_qas():
         qas_formatted = get_qas_formatted()
 
 
-def ask(question, original_question=None):
+def ask(question, topic=None):
     has_history = len(previous_qas) != 0
     parts = []
-    parts.append('[START OF CONTEXTUAL INFORMATION]')
+    parts.append('--- START OF CONTEXTUAL INFORMATION')
     if has_history:
         parts.append(f'[Q&A HISTORY]\n{get_qas_formatted()}')
-    if original_question:
-        parts.append(f'[ORIGINAL QUESTION]\n{original_question}')
+    if topic:
+        parts.append(f'[TOPIC]\n{topic}')
     parts.append(f'[CURRENT QUESTION]\n{question}')
-    parts.append(f'[ANSWER TEMPLATE]\n{answer_template}')
-    parts.append('[END OF CONTEXTUAL INFORMATION]')
-    parts.append('[START OF PROMPT]')
-    parts.append(
-        'You are an AI researcher that answers questions factually correct, the answers should lead to curiosity. Elaborate on the answer as much as possible.')
-    parts.append('Goal 1: Answer the [CURRENT QUESTION].')
-    parts.append(
-        f'Goal 2: Make up 5 follow-up questions mainly related to your answer. {" Also take the previous questions under [Q&A HISTORY] into consideration to try and figure out what interests the questioner." if has_history else ""}')
+    parts.append('--- END OF CONTEXTUAL INFORMATION')
+    parts.append('--- START OF PROMPT')
+    directives = []
+    directives.append(
+        'You are an AI researcher that answers questions factually correct, the answers should lead to curiosity. Elaborate on the answers as much as possible. Here are your directives:')
+    directives.append('1. Answer the [CURRENT QUESTION].')
+    if topic:
+        parts.append(f'2. Come up with a topic that suits the latest 2 questions of [Q&A HISTORY], the topic should be short but descriptive.')
+    directives.append(
+        f'{"3" if topic else "2"}. Create 5 follow-up questions for your current answer.{" Try and stay as close to the [TOPIC] as possible." if topic else ""}')
+    parts.append('\n'.join(directives))
     if len(previous_qas):
         parts.append(
-            'When goal 1 and 2 are complete, analyse [Q&A HISTORY] to decrease repetition of answers and follow-up questions')
+            'Analyze the [Q&A HISTORY] to decrease repetition of answers and follow-up questions.')
     parts.append(
-        'Always try to keep the answers as close to the the [ORIGINAL QUESTION] as possible, and do not diverge from it as long as the user\'s questions does not indicate a clear change of interest.')
+        'Try to keep the answers relevant for the [TOPIC] as possible, and do not diverge from it as long as the user\'s questions does not indicate a clear change of interest.')
     parts.append(
-        'The format of your answer should be in JSON following the [ANSWER TEMPLATE] exactly.')
+        f'IMPORTANT: Only respond in JSON formatting following the following template exactly:\n\n{answer_template}')
     prompt = '\n\n'.join(parts)
 
     response = do_request(prompt)
 
     success = False
     data = None
+    answer = None
+    options = None
+    topic = None
     try:
         data = json.loads(response)
     except json.JSONDecodeError as e:
         pass
 
-    answer = data["answer"].strip() if data and data["answer"] else None
-    options = data["follow_up_questions"] if data and data["follow_up_questions"] else None
+    if data:
+        answer = data["answer"].strip() if data["answer"] else None
+        topic = data["topic"].strip() if data["topic"] else None
+        options = data["follow_up_questions"] if data["follow_up_questions"] else None
 
     if answer:
         print_green(f"\n{answer}")
         previous_qas.append(f'[QUESTION]: {question}\n[ANSWER]: {answer}')
         trim_qas()
         success = True
+    # else:
+    #     print(response)
 
-    return success, options
+    # if topic:
+    #     print(f'Current topic: {topic}')
+
+    if options:
+        options = list(map(lambda x: x.strip(), options))
+
+    return success, options, topic
 
 
 def main():
     while True:
         original_question = input("\nEnter a question:\n")
-        success, options = ask(original_question)
+        success, options, topic = ask(original_question)
+        topic = topic if topic else original_question
 
         while True:
             if not success:
@@ -137,7 +150,8 @@ def main():
             else:
                 follow_up_question = input('\nCould not find any follow-up questions, please provide one yourself:\n')
 
-            success, options = ask(follow_up_question, original_question)
+            success, options, updated_topic = ask(follow_up_question, topic)
+            topic = updated_topic if updated_topic else topic
 
 
 if __name__ == "__main__":
