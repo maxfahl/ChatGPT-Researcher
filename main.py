@@ -6,30 +6,57 @@ import tiktoken
 from colorama import init
 from termcolor import colored, cprint
 
-encoder = tiktoken.encoding_for_model('gpt-3.5-turbo')
 
 init()
 
 OPENAI_API_KEY = config('OPENAI_API_KEY')
+
 if not OPENAI_API_KEY:
     print('OpenAI API key not defined in .env.')
     quit()
-
 openai.api_key = OPENAI_API_KEY
-max_request_tokens = 2000
 
-answer_template = '{"topic": "<TOPIC>", "answer": "<YOUR_ANSWER>", "follow_up_questions": ["<follow_up_question_1>", "<follow_up_question_2>", "<follow_up_question_3>", "<follow_up_question_4>", "<follow_up_question_5>"]}'
+DEBUG = config('DEBUG') == 'true'
+ANSWER_TEMPLATE = '{"topic": "<TOPIC>", "answer": "<YOUR_ANSWER>", "follow_up_questions": ["<follow_up_question_1>", "<follow_up_question_2>", "<follow_up_question_3>", "<follow_up_question_4>", "<follow_up_question_5>"]}'
+MAX_HISTORY_TOKENS = 3000
+
+encoder = tiktoken.encoding_for_model('gpt-3.5-turbo')
+qa_history = []
 
 print_green = lambda text: cprint(text, "green")
 print_blue = lambda text: cprint(text, "blue")
 print_magenta = lambda text: cprint(text, "magenta")
 print_cyan = lambda text: cprint(text, "cyan")
+print_yellow = lambda text: cprint(text, "yellow")
 
-previous_qas = []
+
+def debug_log(text):
+    if DEBUG:
+        print_yellow(text)
 
 
-def get_qas_formatted():
-    return '\n\n'.join(previous_qas)
+def get_num_tokens(text):
+    return len(encoder.encode(text))
+
+
+def has_qa_history():
+    return len(qa_history) > 0
+
+
+def get_qa_history_formatted():
+    return '\n\n'.join(qa_history)
+
+
+def previous_qa_history_length_ok():
+    qas_formatted = get_qa_history_formatted()
+    num_tokens = get_num_tokens(qas_formatted)
+    return num_tokens <= MAX_HISTORY_TOKENS
+
+
+def trim_qas():
+    while not previous_qa_history_length_ok():
+        qa_history.pop()
+        trim_qas()
 
 
 def do_request(prompt):
@@ -37,36 +64,19 @@ def do_request(prompt):
     response = openai.ChatCompletion.create(
         messages=[{"role": "system", "content": prompt}],
         model="gpt-3.5-turbo",
-        max_tokens=500,
+        max_tokens=600,
         n=1,
         stop=None,
-        temperature=1.2,
+        temperature=0.25,
     )
     return response.choices[0].message.content.strip()
 
 
-def get_num_tokens(text):
-    return len(encoder.encode(text))
-
-
-def accept_token_length(text):
-    num_tokens = get_num_tokens(text)
-    return num_tokens <= max_request_tokens
-
-
-def trim_qas():
-    qas_formatted = get_qas_formatted()
-    while not accept_token_length(qas_formatted):
-        previous_qas.pop()
-        qas_formatted = get_qas_formatted()
-
-
 def ask(question, topic=None):
-    has_history = len(previous_qas) != 0
     parts = []
     parts.append('--- START OF CONTEXTUAL INFORMATION')
-    if has_history:
-        parts.append(f'[Q&A HISTORY]\n{get_qas_formatted()}')
+    if has_qa_history():
+        parts.append(f'[Q&A HISTORY]\n{get_qa_history_formatted()}')
     if topic:
         parts.append(f'[TOPIC]\n{topic}')
     parts.append(f'[CURRENT QUESTION]\n{question}')
@@ -81,13 +91,13 @@ def ask(question, topic=None):
     directives.append(
         f'{"3" if topic else "2"}. Create 5 follow-up questions for your current answer.{" Try and stay as close to the [TOPIC] as possible." if topic else ""}')
     parts.append('\n'.join(directives))
-    if len(previous_qas):
+    if len(qa_history):
         parts.append(
             'Analyze the [Q&A HISTORY] to decrease repetition of answers and follow-up questions.')
     parts.append(
         'Try to keep the answers relevant for the [TOPIC] as possible, and do not diverge from it as long as the user\'s questions does not indicate a clear change of interest.')
     parts.append(
-        f'IMPORTANT: Only respond in JSON formatting following the following template exactly:\n\n{answer_template}')
+        f'IMPORTANT: Only respond in JSON formatting following the following template exactly:\n\n{ANSWER_TEMPLATE}')
     prompt = '\n\n'.join(parts)
 
     response = do_request(prompt)
@@ -109,17 +119,15 @@ def ask(question, topic=None):
 
     if answer:
         print_green(f"\n{answer}")
-        previous_qas.append(f'[QUESTION]: {question}\n[ANSWER]: {answer}')
+        qa_history.append(f'[QUESTION]: {question}\n[ANSWER]: {answer}')
         trim_qas()
         success = True
-    # else:
-    #     print(response)
-
-    # if topic:
-    #     print(f'Current topic: {topic}')
 
     if options:
         options = list(map(lambda x: x.strip(), options))
+
+    if DEBUG and not answer or not topic or not options:
+        print_yellow(f'Could not parse response answer, topic or options from: {response}')
 
     return success, options, topic
 
