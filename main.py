@@ -1,10 +1,9 @@
 from decouple import config
 import openai
-import re
 import json
 import tiktoken
 from colorama import init
-from termcolor import colored, cprint
+from termcolor import  cprint
 
 
 init()
