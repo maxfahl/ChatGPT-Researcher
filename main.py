@@ -59,7 +59,7 @@ def trim_qas():
 
 
 def do_request(prompt):
-    debug_log(f'Prompt:\n\n{prompt}');
+    # debug_log(f'Prompt:\n\n{prompt}');
     print_magenta("\nThinking...")
     response = openai.ChatCompletion.create(
         messages=[{"role": "system", "content": prompt}],
@@ -84,16 +84,16 @@ def ask(question, topic=None):
     parts.append('--- START OF PROMPT')
     directives = []
     directives.append(
-        'You are an AI researcher that answers questions factually correct, the answers should lead to curiosity. Elaborate on the answers as much as possible. Here are your directives:')
+        'You are an AI research assistant that answers questions factually correct, the answers should lead to curiosity. Elaborate on the answers as much as possible. Here are your directives:')
     directives.append('1. Answer the [CURRENT QUESTION].')
     if topic:
         directives.append(f'2. Come up with a topic that suits the latest 3 questions of [Q&A HISTORY], the topic should be short but descriptive.')
     directives.append(
-        f'{"3" if topic else "2"}. Create 5 follow-up questions for your current answer.{" Try and stay as close to the [TOPIC] as possible." if topic else ""}. The 6th follow-up question should derive from the [TOPIC], by still being related to the [CURRENT QUESTION].')
+        f'{"3" if topic else "2"}. Create 5 follow-up questions for your current answer.{" Try and stay as close to the [TOPIC] as possible." if topic else ""}, unless the user clearly changes interest. The 6th follow-up question should derive from the [TOPIC], by still being related to the [CURRENT QUESTION].')
     parts.append('\n'.join(directives))
     if len(qa_history):
         parts.append(
-            'Analyze the [Q&A HISTORY] to decrease repetition of answers and follow-up questions.')
+            'Decrease repetition of answers and follow-up questions by analyzing [Q&A HISTORY]. Also, stay away from repetitive follow-up questions in general.')
 
     parts.append(
         f'IMPORTANT: Only respond in JSON formatting using the following template exactly:\n\n{ANSWER_TEMPLATE}')
@@ -117,6 +117,8 @@ def ask(question, topic=None):
         topic = data["topic"].strip() if data["topic"] else None
         options = data["follow_up_questions"] if data["follow_up_questions"] else None
 
+    debug_log(f'\nCurrent topic: {topic if topic else "None"}')
+
     if answer:
         print_green(f"\n{answer}")
         qa_history.append(f'Question: {question}\nAnswer: {answer}')
@@ -125,8 +127,6 @@ def ask(question, topic=None):
 
     if options:
         options = list(map(lambda x: x.strip(), options))
-
-    debug_log(f'Topic: {topic if topic else "None"}')
 
     if DEBUG and not answer or not topic or not options:
         print_yellow(f'Could not parse response answer, topic or options from: {response}')
