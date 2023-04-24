@@ -59,20 +59,26 @@ def trim_qas():
 
 
 def do_request(prompt):
-    # debug_log(f'Prompt:\n\n{prompt}');
     print_magenta("\nThinking...")
-    response = openai.ChatCompletion.create(
-        messages=[{"role": "system", "content": prompt}],
-        model="gpt-3.5-turbo",
-        max_tokens=600,
-        n=1,
-        stop=None,
-        temperature=0.5,
-    )
-    return response.choices[0].message.content.strip()
+    try:
+        response = openai.ChatCompletion.create(
+            messages=[{"role": "system", "content": prompt}],
+            model="gpt-3.5-turbo",
+            max_tokens=600,
+            n=1,
+            stop=None,
+            temperature=0.5,
+        )
+    except openai.error.OpenAIError as e:
+        raise Exception(f"OpenAI API request failed: {str(e)}")
+    else:
+        if response.choices and len(response.choices) > 0 and response.choices[0].message and response.choices[0].message.content:
+            return response.choices[0].message.content.strip()
+        else:
+            raise Exception("Invalid response from OpenAI API")
 
 
-def ask(question, topic=None):
+def build_prompt(question, topic=None):
     parts = []
     parts.append('--- START OF CONTEXT')
     if has_qa_history():
@@ -98,24 +104,34 @@ def ask(question, topic=None):
     parts.append(
         f'IMPORTANT: Only respond in JSON formatting using the following template exactly:\n\n{ANSWER_TEMPLATE}')
     prompt = '\n\n'.join(parts)
+    return prompt
 
-    response = do_request(prompt)
 
-    success = False
-    data = None
-    answer = None
-    topic = None
-    options = None
-
+def parse_response(response):
     try:
         data = json.loads(response)
     except json.JSONDecodeError as e:
-        pass
+        raise Exception(f"Failed to parse response as JSON: {str(e)}")
 
     if data:
-        answer = data["answer"].strip() if data["answer"] else None
-        topic = data["topic"].strip() if data["topic"] else None
-        options = data["follow_up_questions"] if data["follow_up_questions"] else None
+        answer = data.get("answer", "").strip()
+        topic = data.get("topic", "").strip()
+        options = data.get("follow_up_questions", [])
+        return answer, topic, options
+    else:
+        raise Exception("Invalid response from OpenAI API")
+
+
+def ask(question, topic=None):
+    prompt = build_prompt(question, topic)
+
+    response = do_request(prompt)
+
+    try:
+        answer, topic, options = parse_response(response)
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return False, None, None
 
     debug_log(f'\nCurrent topic: {topic if topic else "None"}')
 
@@ -158,7 +174,11 @@ def main():
                 else:
                     follow_up_question = user_input
             else:
-                follow_up_question = input('\nCould not find any follow-up questions, please provide one yourself:\n')
+                follow_up_question = input('\nAsk a follow-up question:\n')
+
+            if follow_up_question.lower() == "exit":
+                print('\n\nBye-bye!')
+                return
 
             success, updated_topic, options = ask(follow_up_question, topic)
             topic = updated_topic if updated_topic else topic
