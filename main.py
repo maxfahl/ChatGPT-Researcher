@@ -15,7 +15,8 @@ if not OPENAI_API_KEY:
     quit()
 openai.api_key = OPENAI_API_KEY
 
-DEBUG = config('DEBUG') == 'true'
+MODEL = config('MODEL', default="gpt-3.5-turbo")
+DEBUG = config('DEBUG', default='false') == 'true'
 ANSWER_TEMPLATE = '{"answer": "<YOUR_ANSWER>", "topic": "<TOPIC>", "follow_up_questions": ["<follow_up_question_1>", "<follow_up_question_2>", "<follow_up_question_3>", "<follow_up_question_4>", "<follow_up_question_5>", "<follow_up_question_6>"]}'
 MAX_HISTORY_TOKENS = 3000
 
@@ -62,8 +63,8 @@ def do_request(prompt):
     print_magenta("\nThinking...")
     try:
         response = openai.ChatCompletion.create(
-            messages=[{"role": "system", "content": prompt}],
-            model="gpt-3.5-turbo",
+            messages=prompt,
+            model=MODEL,
             max_tokens=600,
             n=1,
             stop=None,
@@ -78,32 +79,35 @@ def do_request(prompt):
             raise Exception("Invalid response from OpenAI API")
 
 
-def build_prompt(question, topic=None):
+def build_prompt(conversation, topic=None):
+    topic_formatted = f'"{topic}"' if topic else ''
+
     parts = []
-    parts.append('--- START OF CONTEXT')
-    if has_qa_history():
-        parts.append(f'[Q&A HISTORY]\n{get_qa_history_formatted()}')
-    if topic:
-        parts.append(f'[TOPIC]\n{topic}')
-    parts.append(f'[CURRENT QUESTION]\n{question}')
-    parts.append('--- END OF CONTEXT')
-    parts.append('--- START OF PROMPT')
     directives = []
     directives.append(
         'You are an AI research assistant that answers questions factually correct, the answers should lead to curiosity. Elaborate on the answers as much as possible. Here are your directives:')
-    directives.append('1. Answer the [CURRENT QUESTION].')
+    directives.append('1. Answer the user question.')
     if topic:
-        directives.append(f'2. Come up with a topic that suits the latest 3 questions of [Q&A HISTORY], the topic should be short but descriptive.')
+        directives.append(f'2. Come up with a topic that suits the latest 3 user questions, the topic should be short and descriptive.')
     directives.append(
-        f'{"3" if topic else "2"}. Create 5 follow-up questions for your current answer.{" Try and stay as close to the [TOPIC] as possible." if topic else ""}, unless the user clearly changes interest. The 6th follow-up question should derive from the [TOPIC], by still being related to the [CURRENT QUESTION].')
+        f'{"3" if topic else "2"}. Create {"6" if topic else "5"} follow-up questions for your current answer.{f" Try and stay as close to the topic {topic_formatted} as possible, unless the user clearly changes interest. The 6th follow-up question should derive from the topic a bit, while still being related to the last user message. " if topic else ""}.')
     parts.append('\n'.join(directives))
-    if len(qa_history):
+    if len(conversation):
         parts.append(
-            'Decrease repetition of answers and follow-up questions by analyzing [Q&A HISTORY]. Also, stay away from repetitive follow-up questions in general.')
+            'Decrease repetition of answers and follow-up questions by analyzing the chat history. Also, stay away from repetitive follow-up questions in general.')
 
     parts.append(
         f'IMPORTANT: Only respond in JSON formatting using the following template exactly:\n\n{ANSWER_TEMPLATE}')
-    prompt = '\n\n'.join(parts)
+    system_content = '\n\n'.join(parts)
+
+    prompt = [{"role": "system", "content": system_content}]
+    for msg in conversation:
+        role, content = msg
+        prompt.append({"role": role, "content": content})
+    # prompt.append({"role": "user", "content": question})
+
+    debug_log('\nPrompt: {}'.format(json.dumps(prompt, indent=4)))
+
     return prompt
 
 
@@ -122,9 +126,10 @@ def parse_response(response):
         raise Exception("Invalid response from OpenAI API")
 
 
-def ask(question, topic=None):
-    prompt = build_prompt(question, topic)
+def ask(question, conversation, topic=None):
+    conversation.append(("user", question))
 
+    prompt = build_prompt(conversation, topic)
     response = do_request(prompt)
 
     try:
@@ -147,41 +152,49 @@ def ask(question, topic=None):
     if DEBUG and not answer or not topic or not options:
         print_yellow(f'Could not parse response answer, topic or options from: {response}')
 
-    return success, topic, options
+    return success, answer, topic, options
+
+
+def ask_and_append(conversation, question, topic=None):
+    success, answer, updated_topic, options = ask(question, conversation, topic)
+    topic = updated_topic if updated_topic else topic
+    return success, answer, topic, options
 
 
 def main():
+    conversation = []
+    topic = None
+
     while True:
-        original_question = input("\nEnter a question:\n")
-        success, topic, options = ask(original_question)
-        topic = topic if topic else original_question
-
-        while True:
-            if not success:
-                print("\nNo answer found. Try another question.\n")
-                break
-
+        if not len(conversation):
+            question = input("\nEnter a question or type 'exit' to quit:\n")
+        else:
             if options:
                 print('')
                 for i, option in enumerate(options, 1):
                     print_cyan(f"{i}. {option}")
 
                 user_input = input(
-                    '\nChoose a follow-up question by entering the corresponding number (1-5) or type a custom question:\n')
+                    '\nChoose a follow-up question by entering the corresponding number (1-5) or type a custom question (type exit to quit):\n')
 
                 if user_input.isdigit() and 1 <= int(user_input) <= 6:
-                    follow_up_question = options[int(user_input) - 1]
+                    question = options[int(user_input) - 1]
                 else:
-                    follow_up_question = user_input
+                    question = user_input
             else:
-                follow_up_question = input('\nAsk a follow-up question:\n')
+                question = input('\nAsk a follow-up question:\n')
 
-            if follow_up_question.lower() == "exit":
-                print('\n\nBye-bye!')
-                return
+        if question.lower() == "exit":
+            print('\n\nBye-bye!')
+            return
 
-            success, updated_topic, options = ask(follow_up_question, topic)
-            topic = updated_topic if updated_topic else topic
+        success, answer, topic, options = ask_and_append(conversation, question, topic)
+
+        if not success:
+            print("\nSorry, I couldn't find an answer to your question. Try another one.\n")
+            continue
+
+        conversation.append(("assistant", answer))
 
 
 if __name__ == "__main__":
