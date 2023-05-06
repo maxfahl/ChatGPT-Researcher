@@ -8,7 +8,8 @@ This is a small project of mine that uses ChatGPT to satisfy curious minds. It b
 4. Repeat step 2 and 3.
 
 **Instructions:**
-- Rename `.env.example` to `.env` and enter your OpenAI API key. 
+- Rename `.env.example` to `.env` and enter your OpenAI API key.
+- Optionally, and if you have API access to gpt-4, change MODEL to be `gpt-4`.
 - `pip install -r requirements.txt`
 - `python ./main.py`
 
